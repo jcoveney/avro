@@ -437,16 +437,17 @@ public class JsonDecoder extends ParsingDecoder
     advance(Symbol.UNION);
     Symbol.Alternative a = (Symbol.Alternative) parser.popSymbol();
 
-    // This contains all the possiblities, in order of preference. This is necessary because JSON just has floats,
-    // but the avro type that is present could be a double or a float (the same is true for ints).
-    String[] labels;
+    // This contains all the possiblities, in order of preference. This is necessary because JSON just has floats/ints,
+    // but the avro type that is present could be a double or a float. Further complicating issues, it seems like values
+    // that can validly be coerced are coerced, such as 1.0 being treated as an int.
+    String label;
     switch (in.getCurrentToken()) {
     case VALUE_NULL:
-      labels = new String[]{"null"};
+      label = "null";
       break;
     case START_OBJECT:
       if (in.nextToken() == JsonToken.FIELD_NAME) {
-        labels = new String[]{in.getText()};
+        label = in.getText();
         in.nextToken();
         parser.pushSymbol(Symbol.UNION_END);
         break;
@@ -454,38 +455,32 @@ public class JsonDecoder extends ParsingDecoder
         throw error("start-union");
       }
     case VALUE_STRING:
-      labels = new String[]{"string"};
+      label = "string";
       break;
+    // It appears that a JSON int or JSON float can be coerced (ie 1.0 is an int)
     case VALUE_NUMBER_INT:
-      labels = new String[]{"long", "int"};
-      break;
-    // It's a JSON float, but could be a double or float
     case VALUE_NUMBER_FLOAT:
-      labels = new String[]{"double", "float"};
-      break;
+      for (String lbl : new String[]{"double", "float", "long", "int"}) {
+        int n = a.findLabel(lbl);
+        if (n >= 0) {
+          parser.pushSymbol(a.getSymbol(n));
+          return n;
+        }
+      }
+      throw new AvroTypeException("Primitive JsonType does not have a matching primitive numeric label");
     case VALUE_TRUE:
     case VALUE_FALSE:
-      labels = new String[]{"boolean"};
+      label = "boolean";
       break;
     default:
       throw error("start-union");
     }
-    boolean first = true;
-    StringBuilder labelString = new StringBuilder();
-    for (String label : labels) {
-      if (first) {
-        first = false;
-      } else {
-        labelString.append(",");
-      }
-      labelString.append(label);
-      int n = a.findLabel(label);
-      if (n >= 0) {
-        parser.pushSymbol(a.getSymbol(n));
-        return n;
-      }
+    int n = a.findLabel(label);
+    if (n < 0) {
+      throw new AvroTypeException("Unknown union branch: " + label);
     }
-    throw new AvroTypeException("Unknown union branch: " + labelString);
+    parser.pushSymbol(a.getSymbol(n));
+    return n;
   }
 
   @Override

@@ -52,11 +52,12 @@ public class TestJsonDecoder {
     DatumReader<GenericRecord> reader =
       new GenericDatumReader<GenericRecord>(schema);
     String[] records = {"{\"n\":1}", "{\"n\":1.0}", "{\"n\":null}"};
+    Integer[] expected = {1, 1, null};
 
-    for (String record : records) {
-      Decoder decoder = DecoderFactory.get().jsonDecoder(schema, record);
+    for (int i = 0; i < records.length; i++) {
+      Decoder decoder = DecoderFactory.get().jsonDecoder(schema, records[i]);
       GenericRecord r = reader.read(null, decoder);
-      Assert.assertEquals(value, r.get("n"));
+      Assert.assertEquals(expected[i], r.get("n"));
     }
   }
 
