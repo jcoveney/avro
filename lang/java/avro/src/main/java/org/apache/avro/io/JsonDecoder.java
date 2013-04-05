@@ -437,9 +437,7 @@ public class JsonDecoder extends ParsingDecoder
     advance(Symbol.UNION);
     Symbol.Alternative a = (Symbol.Alternative) parser.popSymbol();
 
-    // This contains all the possiblities, in order of preference. This is necessary because JSON just has floats/ints,
-    // but the avro type that is present could be a double or a float. Further complicating issues, it seems like values
-    // that can validly be coerced are coerced, such as 1.0 being treated as an int.
+
     String label;
     switch (in.getCurrentToken()) {
     case VALUE_NULL:
@@ -457,9 +455,10 @@ public class JsonDecoder extends ParsingDecoder
     case VALUE_STRING:
       label = "string";
       break;
-    // It appears that a JSON int or JSON float can be coerced (ie 1.0 is an int)
     case VALUE_NUMBER_INT:
     case VALUE_NUMBER_FLOAT:
+      // This contains all the possiblities, in order of preference. This is necessary because the JSON type can be a
+      // float or int, but the avro type could be any primitive.
       for (String lbl : new String[]{"double", "float", "long", "int"}) {
         int n = a.findLabel(lbl);
         if (n >= 0) {
