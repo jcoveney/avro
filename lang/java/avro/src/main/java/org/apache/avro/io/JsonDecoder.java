@@ -43,7 +43,15 @@ import org.codehaus.jackson.JsonStreamContext;
 import org.codehaus.jackson.JsonToken;
 import org.codehaus.jackson.ObjectCodec;
 
-/** A {@link Decoder} for Avro's JSON data encoding. 
+import static org.codehaus.jackson.JsonToken.VALUE_NULL;
+import static org.codehaus.jackson.JsonToken.START_OBJECT;
+import static org.codehaus.jackson.JsonToken.VALUE_STRING;
+import static org.codehaus.jackson.JsonToken.VALUE_NUMBER_INT;
+import static org.codehaus.jackson.JsonToken.VALUE_NUMBER_FLOAT;
+import static org.codehaus.jackson.JsonToken.VALUE_TRUE;
+import static org.codehaus.jackson.JsonToken.VALUE_FALSE;
+
+/** A {@link Decoder} for Avro's JSON data encoding.
  * </p>
  * Construct using {@link DecoderFactory}.
  * </p>
@@ -54,20 +62,20 @@ public class JsonDecoder extends ParsingDecoder
   private JsonParser in;
   private static JsonFactory jsonFactory = new JsonFactory();
   Stack<ReorderBuffer> reorderBuffers = new Stack<ReorderBuffer>();
-  ReorderBuffer currentReorderBuffer; 
-  
+  ReorderBuffer currentReorderBuffer;
+
   private static class ReorderBuffer {
     public Map<String, List<JsonElement>> savedFields = new HashMap<String, List<JsonElement>>();
-    public JsonParser origParser = null; 
+    public JsonParser origParser = null;
   }
-  
+
   static final String CHARSET = "ISO-8859-1";
 
   private JsonDecoder(Symbol root, InputStream in) throws IOException {
     super(root);
     configure(in);
   }
-  
+
   private JsonDecoder(Symbol root, String in) throws IOException {
     super(root);
     configure(in);
@@ -76,11 +84,11 @@ public class JsonDecoder extends ParsingDecoder
   JsonDecoder(Schema schema, InputStream in) throws IOException {
     this(getSymbol(schema), in);
   }
-  
+
   JsonDecoder(Schema schema, String in) throws IOException {
     this(getSymbol(schema), in);
   }
-  
+
   private static Symbol getSymbol(Schema schema) {
     if (null == schema) {
       throw new NullPointerException("Schema cannot be null!");
@@ -109,7 +117,7 @@ public class JsonDecoder extends ParsingDecoder
     this.in.nextToken();
     return this;
   }
-  
+
   /**
    * Reconfigures this JsonDecoder to use the String provided for input.
    * <p/>
@@ -152,7 +160,7 @@ public class JsonDecoder extends ParsingDecoder
   @Override
   public boolean readBoolean() throws IOException {
     advance(Symbol.BOOLEAN);
-    JsonToken t = in.getCurrentToken(); 
+    JsonToken t = in.getCurrentToken();
     if (t == JsonToken.VALUE_TRUE || t == JsonToken.VALUE_FALSE) {
       in.nextToken();
       return t == JsonToken.VALUE_TRUE;
@@ -172,7 +180,7 @@ public class JsonDecoder extends ParsingDecoder
       throw error("int");
     }
   }
-    
+
   @Override
   public long readLong() throws IOException {
     advance(Symbol.LONG);
@@ -208,7 +216,7 @@ public class JsonDecoder extends ParsingDecoder
       throw error("double");
     }
   }
-    
+
   @Override
   public Utf8 readString(Utf8 old) throws IOException {
     return new Utf8(readString());
@@ -284,7 +292,7 @@ public class JsonDecoder extends ParsingDecoder
         top.size + " but received " + size + " bytes.");
     }
   }
-    
+
   @Override
   public void readFixed(byte[] bytes, int start, int len) throws IOException {
     checkFixed(len);
@@ -377,7 +385,7 @@ public class JsonDecoder extends ParsingDecoder
     if (in.getCurrentToken() == JsonToken.START_ARRAY) {
       in.skipChildren();
       in.nextToken();
-      advance(Symbol.ARRAY_END);    
+      advance(Symbol.ARRAY_END);
     } else {
       throw error("array-start");
     }
@@ -417,7 +425,7 @@ public class JsonDecoder extends ParsingDecoder
     if (in.getCurrentToken() == JsonToken.START_OBJECT) {
       in.skipChildren();
       in.nextToken();
-      advance(Symbol.MAP_END);    
+      advance(Symbol.MAP_END);
     } else {
       throw error("map-start");
     }
@@ -428,23 +436,56 @@ public class JsonDecoder extends ParsingDecoder
   public int readIndex() throws IOException {
     advance(Symbol.UNION);
     Symbol.Alternative a = (Symbol.Alternative) parser.popSymbol();
-    
-    String label;
-    if (in.getCurrentToken() == JsonToken.VALUE_NULL) {
-      label = "null";
-    } else if (in.getCurrentToken() == JsonToken.START_OBJECT &&
-               in.nextToken() == JsonToken.FIELD_NAME) {
-      label = in.getText();
-      in.nextToken();
-      parser.pushSymbol(Symbol.UNION_END);
-    } else {
+
+    // This contains all the possiblities, in order of preference. This is necessary because JSON just has floats,
+    // but the avro type that is present could be a double or a float (the same is true for ints).
+    String[] labels;
+    switch (in.getCurrentToken()) {
+    case VALUE_NULL:
+      labels = new String[]{"null"};
+      break;
+    case START_OBJECT:
+      if (in.nextToken() == JsonToken.FIELD_NAME) {
+        labels = new String[]{in.getText()};
+        in.nextToken();
+        parser.pushSymbol(Symbol.UNION_END);
+        break;
+      } else {
+        throw error("start-union");
+      }
+    case VALUE_STRING:
+      labels = new String[]{"string"};
+      break;
+    case VALUE_NUMBER_INT:
+      labels = new String[]{"long", "int"};
+      break;
+    // It's a JSON float, but could be a double or float
+    case VALUE_NUMBER_FLOAT:
+      labels = new String[]{"double", "float"};
+      break;
+    case VALUE_TRUE:
+    case VALUE_FALSE:
+      labels = new String[]{"boolean"};
+      break;
+    default:
       throw error("start-union");
     }
-    int n = a.findLabel(label);
-    if (n < 0)
-      throw new AvroTypeException("Unknown union branch " + label);
-    parser.pushSymbol(a.getSymbol(n));
-    return n;
+    boolean first = true;
+    StringBuilder labelString = new StringBuilder();
+    for (String label : labels) {
+      if (first) {
+        first = false;
+      } else {
+        labelString.append(",");
+      }
+      labelString.append(label);
+      int n = a.findLabel(label);
+      if (n >= 0) {
+        parser.pushSymbol(a.getSymbol(n));
+        return n;
+      }
+    }
+    throw new AvroTypeException("Unknown union branch: " + labelString);
   }
 
   @Override
@@ -514,12 +555,12 @@ public class JsonDecoder extends ParsingDecoder
       this.token = t;
       this.value = value;
     }
-    
+
     public JsonElement(JsonToken t) {
       this(t, null);
     }
   }
-  
+
   private static List<JsonElement> getVaueAsTree(JsonParser in) throws IOException {
     int level = 0;
     List<JsonElement> result = new ArrayList<JsonElement>();
@@ -685,7 +726,7 @@ public class JsonDecoder extends ParsingDecoder
         throws IOException {
         throw new UnsupportedOperationException();
       }
-      
+
       @Override
       public JsonToken getCurrentToken() {
         return elements.get(pos).token;

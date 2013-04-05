@@ -26,7 +26,7 @@ import org.junit.Test;
 import org.junit.Assert;
 
 public class TestJsonDecoder {
-  
+
   @Test public void testInt() throws Exception {
     checkNumeric("int", 1);
   }
@@ -43,8 +43,25 @@ public class TestJsonDecoder {
     checkNumeric("double", 1.0);
   }
 
+  @Test public void testUnion() throws Exception {
+    Integer value = 1;
+    String def =
+      "{\"type\":\"record\",\"name\":\"X\",\"fields\":"
+      +"[{\"type\":[\"null\", \"int\"],\"name\":\"n\"}]}";
+    Schema schema = Schema.parse(def);
+    DatumReader<GenericRecord> reader =
+      new GenericDatumReader<GenericRecord>(schema);
+    String[] records = {"{\"n\":1}", "{\"n\":1.0}", "{\"n\":null}"};
+
+    for (String record : records) {
+      Decoder decoder = DecoderFactory.get().jsonDecoder(schema, record);
+      GenericRecord r = reader.read(null, decoder);
+      Assert.assertEquals(value, r.get("n"));
+    }
+  }
+
   private void checkNumeric(String type, Object value) throws Exception {
-    String def = 
+    String def =
       "{\"type\":\"record\",\"name\":\"X\",\"fields\":"
       +"[{\"type\":\""+type+"\",\"name\":\"n\"}]}";
     Schema schema = Schema.parse(def);
